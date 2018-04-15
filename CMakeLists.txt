@@ -37,7 +37,7 @@ set(EXE_OUTPUT_DIR ${CMAKE_BINARY_DIR}/built)
 
 # declare binary
 set_out_dir(${EXE_OUTPUT_DIR})
-add_executable(THE_EXE ${SOURCES})
+add_executable(THE_EXE OBJECT ${SOURCES})
 
 # configure compiler/linker
 
