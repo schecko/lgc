@@ -58,5 +58,12 @@ set_target_properties(  THE_EXE PROPERTIES
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+
 add_subdirectory("glfw/")
+include_directories("glfw/deps/")
 target_link_libraries(THE_EXE glfw)
+
+set(GLAD_DIR "glfw/deps")
+add_library(glad "${GLAD_DIR}/glad.c")
+target_include_directories(THE_EXE PRIVATE "${GLAD_DIR}")
+target_link_libraries(THE_EXE "glad" "${CMAKE_DL_LIBS}")
