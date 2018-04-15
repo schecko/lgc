@@ -1,0 +1,17 @@
+#!/bin/bash
+set -e # exit on any failure
+
+HEADER()
+{
+    echo
+    echo
+    echo "***************************************************************"
+    echo $1
+    echo "***************************************************************"
+    echo
+    echo
+}
+
+HEADER "BUILDING LGC"
+cmake -G "Visual Studio 15 2017 Win64" -T host=x64 \
+    .
