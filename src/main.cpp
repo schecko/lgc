@@ -1,4 +1,4 @@
-#include <glad/glad.h>
+﻿#include <glad/glad.h>
 #include <glfw/glfw3.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -66,25 +66,53 @@ int main()
 	int width = 0, height = 0;
 	glfwGetFramebufferSize(window, &width, &height);
 
-#define LAZY (Cell*)malloc((width + 1) * (height + 1) * sizeof(Cell))
-	Cell* cells[NUM_CELL_BUFFERS] = { LAZY, LAZY };
-	cells[0] = &cells[0][width];
-	cells[1] = &cells[1][width];
+	const u32 realTextureSize = (width + 1) * (height + 1) * sizeof(Cell);
+	const u32 usableTextureSize = width * height * sizeof(Cell);
+
+#define LAZY (Cell*)malloc(realTextureSize)
+	Cell* realPtrs[NUM_CELL_BUFFERS] = { LAZY, LAZY };
+	Cell* cells[NUM_CELL_BUFFERS] = { &cells[0][width], &cells[1][width] };
+
 	u32 currentCellBuffer = 0;
 
-	u32 vbos[NUM_CELL_BUFFERS];
-	glGenBuffers(NUM_CELL_BUFFERS, vbos);
+	u32 generations[NUM_CELL_BUFFERS];
+	glGenBuffers(NUM_CELL_BUFFERS, generations);
+	for (u32 i = 0; i < NUM_CELL_BUFFERS; i++)
+	{
+		memset(realPtrs[i], 0, realTextureSize);
+		glBindBuffer(GL_TEXTURE_BUFFER, generations[i]);
+		glBufferData(GL_TEXTURE_BUFFER,
+					 usableTextureSize,
+					 cells[i],
+					 GL_DYNAMIC_DRAW);
+	}
+
+	struct Vert
+	{
+		float pos[2];
+	};
+
+	Vert verts[4] = 
+	{
+		{ 0.0f, 0.0f },
+		{ 1.0f, 0.0f },
+		{ 0.0f, 1.0f },
+		{ 1.0f, 1.0f },
+	};
+
+	// setup the static quad data
+	u32 vbo;
+	glGenBuffers(1, &vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vert), verts + offsetof(Vert, pos));
 
 	static const char* vertexCode = 
 	R"END(
-		uniform mat4 MVP;
-		attribute vec3 vCol;
 		attribute vec2 vPos;
-		varying vec3 color;
 		void main()
 		{
-		    gl_Position = MVP * vec4(vPos, 0.0, 1.0);
-		    color = vCol;
+		    gl_Position = vec4(vPos, 0.0, 1.0);
 		}
 	)END";
 
@@ -115,9 +143,9 @@ int main()
 		// input
 		glfwPollEvents();
 
-		glBindBuffer(GL_ARRAY_BUFFER, vbos[currentCellBuffer]);
+		glBindBuffer(GL_TEXTURE_BUFFER, generations[currentCellBuffer]);
 
-
+		// update the host buffer
 		for (u32 i = 0; i < width - 1; i++)
 		{
 			for (u32 j = 0; j < height - 1; j++)
@@ -142,15 +170,18 @@ int main()
 			}
 		}
 
-		glBufferData(GL_ARRAY_BUFFER,
-					 width * height * sizeof(Cell),
-					 cells[currentCellBuffer],
-					 GL_STATIC_DRAW);
+		// update the device buffer
+		glBufferSubData(GL_TEXTURE_BUFFER, 0, width * height * sizeof(Cell), cells[currentCellBuffer]);
 
 		currentCellBuffer = nextCellBuffer;
 
 		// swap
 		glfwSwapBuffers(window);
+	}
+
+	for (u32 i = 0; i < NUM_CELL_BUFFERS; i++)
+	{
+		free(realPtrs[i]);
 	}
 
 	glfwDestroyWindow(window);
