@@ -75,12 +75,12 @@ int main()
 
 	u32 currentCellBuffer = 0;
 
-	u32 generations[NUM_CELL_BUFFERS];
-	glGenBuffers(NUM_CELL_BUFFERS, generations);
+	u32 cellUniforms[NUM_CELL_BUFFERS];
+	glGenBuffers(NUM_CELL_BUFFERS, cellUniforms);
 	for (u32 i = 0; i < NUM_CELL_BUFFERS; i++)
 	{
 		memset(realPtrs[i], 0, realTextureSize);
-		glBindBuffer(GL_TEXTURE_BUFFER, generations[i]);
+		glBindBuffer(GL_TEXTURE_BUFFER, cellUniforms[i]);
 		glBufferData(GL_TEXTURE_BUFFER,
 					 usableTextureSize,
 					 cells[i],
@@ -90,43 +90,77 @@ int main()
 	struct Vert
 	{
 		float pos[2];
+		float uv[2];
 	};
 
-	Vert verts[4] = 
+	Vert verts[] = 
 	{
-		{ 0.0f, 0.0f },
-		{ 1.0f, 0.0f },
-		{ 0.0f, 1.0f },
-		{ 1.0f, 1.0f },
+		// positions    // texture coords
+		1.0f,  1.0f,	1.0f, 1.0f, // top right
+		1.0f, -1.0f,	1.0f, 0.0f, // bottom right
+		-1.0f, -1.0f,	0.0f, 0.0f, // bottom left
+		-1.0f,  1.0f,	0.0f, 1.0f  // top left 
 	};
+
+	u32 indices[] = 
+	{
+		0, 1, 3,
+		1, 2, 3
+	};
+
+	// prepare the vertex array object
+	u32 vao;
+	glGenVertexArrays(1, &vao);
+
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vert), (void*)offsetof(Vert, pos));
+	glEnableVertexAttribArray(0);
+
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vert), (void*)offsetof(Vert, uv));
+	glEnableVertexAttribArray(1);
 
 	// setup the static quad data
 	u32 vbo;
 	glGenBuffers(1, &vbo);
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
-	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vert), verts + offsetof(Vert, pos));
 
-	static const char* vertexCode = 
+	// setup static index data
+	u32 ibo;
+	glGenBuffers(1, &ibo);
+	glBindBuffer(GL_ARRAY_BUFFER, ibo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+
+	static const char rawVertexCode[] = 
 	R"END(
-		attribute vec2 vPos;
+		in vec2 vPos;
 		void main()
 		{
 		    gl_Position = vec4(vPos, 0.0, 1.0);
 		}
 	)END";
 
-	static const char* fragmentCode =
+	char vertexCode[sizeof(rawVertexCode) * 2] = {};
+	sprintf(vertexCode, rawVertexCode);
+
+	static const char* rawFragmentCode =
 	R"END(
-		varying vec3 color;
+		struct Cell
+		{
+			int age;
+		};
+
+		uniform Cell cells[%i];
 		void main()
 		{
-		    gl_FragColor = vec4(color, 1.0);
+		    gl_FragColor = ;
 		}
 	)END";
+	char fragmentCode[sizeof(rawFragmentCode) * 2] = {};
+	sprintf(fragmentCode, rawVertexCode, realTextureSize);
+
 
 	u32 vertex_shader = glCreateShader(GL_VERTEX_SHADER);
-	glShaderSource(vertex_shader, 1, &vertexCode, NULL);
+	glShaderSource(vertex_shader, 1, &(const char*)vertexCode, NULL);
 	glCompileShader(vertex_shader);
 	u32 fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
 	glShaderSource(fragment_shader, 1, &fragmentCode, NULL);
