@@ -2,6 +2,8 @@
 #include <glfw/glfw3.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
+#include <vector>
 
 typedef unsigned int u32;
 
@@ -18,30 +20,97 @@ static void keyCallback(GLFWwindow* window, int key, int scancode, int action, i
 	}
 }
 
-struct Cell
+void printError(u32 glError)
 {
-	int age;
-};
-
-const u32 NUM_NEIGHTBOURS = 9;
-
-inline Cell nextGeneration(Cell neighbourhood[NUM_NEIGHTBOURS])
-{
-	Cell nextGen;
-
-	u32 age = 0;
-
-	for (u32 i = 0; i < NUM_NEIGHTBOURS; i++)
+	switch (glError)
 	{
-		age ^= neighbourhood[i].age;
+		case GL_NO_ERROR:
+		{
+		} break;
+		case GL_INVALID_ENUM:
+		{
+			printf("GL_INVALID_ENUM\n");
+		} break;
+		case GL_INVALID_VALUE:
+		{
+			printf("GL_INVALID_VALUE\n");
+		} break;
+		case GL_INVALID_OPERATION:
+		{
+			printf("GL_INVALID_OPERATION\n");
+		} break;
+		case GL_INVALID_FRAMEBUFFER_OPERATION:
+		{
+			printf("GL_INVALID_FRAMEBUFFER_OPERATION\n");
+		} break;
+		case GL_OUT_OF_MEMORY:
+		{
+			printf("GL_OUT_OF_MEMORY\n");
+		} break;
+		case GL_STACK_UNDERFLOW:
+		{
+			printf("GL_STACK_UNDERFLOW\n");
+		} break;
+		case GL_STACK_OVERFLOW:
+		{
+			printf("GL_STACK_OVERFLOW\n");
+		} break;
+		default:
+		{
+			printf("other gl error occurred!\n");
+		}
 	}
-
-	nextGen.age = age;
-
-	return nextGen;
 }
 
-int main()
+bool checkShaderCompile(u32 shader)
+{
+	GLint isCompiled = 0;
+	glGetShaderiv(shader, GL_COMPILE_STATUS, &isCompiled);
+	if (isCompiled == GL_FALSE)
+	{
+		GLint maxLength = 0;
+		glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &maxLength);
+
+		// The maxLength includes the NULL character
+		std::vector<GLchar> errorLog(maxLength);
+		glGetShaderInfoLog(shader, maxLength, &maxLength, &errorLog[0]);
+
+		printf(&errorLog[0]);
+		printf("\n");
+
+		// Exit with failure.
+		glDeleteShader(shader); // Don't leak the shader.
+		return false;
+	}
+
+	return true;
+}
+
+
+#define GLE {u32 error = glGetError(); printError(error); assert(error == GL_NO_ERROR); }
+
+struct Cell
+{
+	u32 alive;
+	u32 age;
+};
+
+static const u32 NUM_NEIGHTBOURS = 9;
+static const u32 WIDTH = 480;
+static const u32 HEIGHT = 640;
+
+void APIENTRY oglDebugCallback(GLenum source​,
+							   GLenum type​,
+							   GLuint id​,
+							   GLenum severity​,
+							   GLsizei length​,
+							   const GLchar* message​,
+							   const void* userParam​)
+{
+	printf(message​);
+}
+
+int main(int argc, char** argv)
 {
 	if (!glfwInit())
 	{
@@ -51,7 +120,8 @@ int main()
 
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
-	GLFWwindow* window = glfwCreateWindow(640, 480, "LGC", NULL, NULL);
+	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, 1);
+	GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "LGC", NULL, NULL);
 	if (!window)
 	{
 		glfwTerminate();
@@ -65,26 +135,30 @@ int main()
 	const u32 NUM_CELL_BUFFERS = 2;
 	int width = 0, height = 0;
 	glfwGetFramebufferSize(window, &width, &height);
-
-	const u32 realTextureSize = (width + 1) * (height + 1) * sizeof(Cell);
-	const u32 usableTextureSize = width * height * sizeof(Cell);
-
-#define LAZY (Cell*)malloc(realTextureSize)
-	Cell* realPtrs[NUM_CELL_BUFFERS] = { LAZY, LAZY };
-	Cell* cells[NUM_CELL_BUFFERS] = { &cells[0][width], &cells[1][width] };
+	assert(width == WIDTH);
+	assert(height == HEIGHT);
 
 	u32 currentCellBuffer = 0;
 
+	typedef Cell Cells[WIDTH][HEIGHT];
+
+	static Cells cellBuffers[NUM_CELL_BUFFERS] = {};
+
 	u32 cellUniforms[NUM_CELL_BUFFERS];
 	glGenBuffers(NUM_CELL_BUFFERS, cellUniforms);
+	GLE;
 	for (u32 i = 0; i < NUM_CELL_BUFFERS; i++)
 	{
-		memset(realPtrs[i], 0, realTextureSize);
+		Cells* currentBuffer = &cellBuffers[i];
+
+		memset(currentBuffer, 0, sizeof(Cells));
 		glBindBuffer(GL_TEXTURE_BUFFER, cellUniforms[i]);
+		GLE;
 		glBufferData(GL_TEXTURE_BUFFER,
-					 usableTextureSize,
-					 cells[i],
+					 sizeof(Cells),
+					 currentBuffer,
 					 GL_DYNAMIC_DRAW);
+		GLE;
 	}
 
 	struct Vert
@@ -108,29 +182,41 @@ int main()
 		1, 2, 3
 	};
 
-	// prepare the vertex array object
-	u32 vao;
-	glGenVertexArrays(1, &vao);
-
-	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vert), (void*)offsetof(Vert, pos));
-	glEnableVertexAttribArray(0);
-
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vert), (void*)offsetof(Vert, uv));
-	glEnableVertexAttribArray(1);
-
 	// setup the static quad data
 	u32 vbo;
 	glGenBuffers(1, &vbo);
+	GLE;
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	GLE;
 	glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+	GLE;
 
 	// setup static index data
 	u32 ibo;
 	glGenBuffers(1, &ibo);
-	glBindBuffer(GL_ARRAY_BUFFER, ibo);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+	GLE;
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+	GLE;
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+	GLE;
 
-	static const char rawVertexCode[] = 
+	// prepare the vertex array object
+	// create vao
+	u32 vao;
+	glGenVertexArrays(1, &vao);
+	GLE;
+	glBindVertexArray(vao);
+	GLE;
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vert), (void*)offsetof(Vert, pos));
+	GLE;
+	glEnableVertexAttribArray(0);
+	GLE;
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vert), (void*)offsetof(Vert, uv));
+	GLE;
+	glEnableVertexAttribArray(1);
+	GLE;
+
+	const char rawVertexCode[] = 
 	R"END(
 		in vec2 vPos;
 		void main()
@@ -139,83 +225,146 @@ int main()
 		}
 	)END";
 
-	char vertexCode[sizeof(rawVertexCode) * 2] = {};
-	sprintf(vertexCode, rawVertexCode);
+	const u32 vertexBufferSize = sizeof(rawVertexCode) * 2;
+	char vertexCode[vertexBufferSize] = {};
+	u32 vertexWritten = sprintf_s(vertexCode, sizeof(rawVertexCode) * 2, rawVertexCode);
+	assert(vertexWritten < vertexBufferSize);
 
-	static const char* rawFragmentCode =
+	const char rawFragmentCode[] =
 	R"END(
 		struct Cell
 		{
+			int alive;
 			int age;
 		};
-
-		uniform Cell cells[%i];
+		const int width = %i;
+		const int height = %i;
+		uniform Cell cells[width * height];
 		void main()
 		{
-		    gl_FragColor = ;
+		    
+			Cell cell = cells[int(gl_FragCoord.x) + int(gl_FragCoord.y) * width];
+			if(cell.alive > 0)
+			{
+				if(cell.age > 100)
+				{
+					gl_FragColor = vec4(0.25, 0.25, 0.25, 1.0);
+				} else if(cell.age > 10)
+				{
+					gl_FragColor = vec4(0.75, 0.75, 0.75, 1.0);
+				} else if(cell.age > 1)
+				{
+					gl_FragColor = vec4(0.5, 0.5, 0.5, 1.0);
+				} else
+				{
+					gl_FragColor = vec4(0.25, 0.25, 0.25, 1.0);
+				}
+			} else
+			{
+				gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+			}
+			 
 		}
 	)END";
-	char fragmentCode[sizeof(rawFragmentCode) * 2] = {};
-	sprintf(fragmentCode, rawVertexCode, realTextureSize);
+	const u32 fragmentBufferSize = sizeof(rawFragmentCode) * 2;
+	char fragmentCode[fragmentBufferSize] = {};
+	u32 fragmentWritten = sprintf_s(fragmentCode, fragmentBufferSize, rawFragmentCode, WIDTH, HEIGHT);
+	assert(fragmentWritten < fragmentBufferSize);
 
-
-	u32 vertex_shader = glCreateShader(GL_VERTEX_SHADER);
-	glShaderSource(vertex_shader, 1, &(const char*)vertexCode, NULL);
-	glCompileShader(vertex_shader);
-	u32 fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
-	glShaderSource(fragment_shader, 1, &fragmentCode, NULL);
-	glCompileShader(fragment_shader);
+	u32 vertexShader = glCreateShader(GL_VERTEX_SHADER);
+	const char* vertexCode2 = vertexCode;
+	glShaderSource(vertexShader, 1, &vertexCode2, NULL);
+	GLE;
+	glCompileShader(vertexShader);
+	assert(checkShaderCompile(vertexShader));
+	u32 fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+	const char* fragmentCode2 = fragmentCode;
+	glShaderSource(fragmentShader, 1, &fragmentCode2, NULL);
+	GLE;
+	glCompileShader(fragmentShader);
+	assert(checkShaderCompile(fragmentShader));
 
 	u32 pipeline = glCreateProgram();
-	glAttachShader(pipeline, vertex_shader);
-	glAttachShader(pipeline, fragment_shader);
+	glAttachShader(pipeline, vertexShader);
+	GLE;
+	glAttachShader(pipeline, fragmentShader);
+	GLE;
 	glLinkProgram(pipeline);
+	GLE;
 
 	while (!glfwWindowShouldClose(window))
 	{
-		u32 nextCellBuffer = (currentCellBuffer + 1) % NUM_CELL_BUFFERS;
+		u32 nextCellBufferIndex = (currentCellBuffer + 1) % NUM_CELL_BUFFERS;
 		// input
 		glfwPollEvents();
 
-		glBindBuffer(GL_TEXTURE_BUFFER, generations[currentCellBuffer]);
+		glBindBuffer(GL_TEXTURE_BUFFER, cellUniforms[currentCellBuffer]);
 
 		// update the host buffer
-		for (u32 i = 0; i < width - 1; i++)
+		for (u32 i = 1; i < WIDTH - 1; i++)
 		{
-			for (u32 j = 0; j < height - 1; j++)
+			for (u32 j = 1; j < HEIGHT - 1; j++)
 			{
-				Cell* cellBuffer = cells[currentCellBuffer];
-				Cell* nextCellBuffer = cells[currentCellBuffer];
-				Cell neighbourhood[NUM_NEIGHTBOURS];
+				Cells* cellBuffer = &cellBuffers[currentCellBuffer];
+				Cells* nextCellBuffer = &cellBuffers[nextCellBufferIndex];
 
-				u32 topLeft = (i - 1) + j * (width - 1);
-				u32 left = (i - 1) + j * width;
-				u32 bottomLeft = (i - 1) + j * (width + 1);
+				u32 numAliveNeighbours = 0;
 
-				u32 index = 0;
-				for (u32 n = 0; n < 3; n++)
+				// top row
+				numAliveNeighbours += (*cellBuffer)[i - 1][j + 1].alive;
+				numAliveNeighbours += (*cellBuffer)[i][j + 1].alive;
+				numAliveNeighbours += (*cellBuffer)[i + 1][j + 1].alive;
+
+				// middle row
+				numAliveNeighbours += (*cellBuffer)[i - 1][j].alive;
+				//numAliveNeighbours += (*cellBuffer)[i][j].alive;
+				numAliveNeighbours += (*cellBuffer)[i + 1][j].alive;
+
+				// bottom row
+				numAliveNeighbours += (*cellBuffer)[i - 1][j - 1].alive;
+				numAliveNeighbours += (*cellBuffer)[i][j - 1].alive;
+				numAliveNeighbours += (*cellBuffer)[i + 1][j - 1].alive;
+
+				switch (numAliveNeighbours)
 				{
-					neighbourhood[index++] = cellBuffer[(topLeft + n) % (width * height)];
-					neighbourhood[index++] = cellBuffer[(left + n) % (width * height)];
-					neighbourhood[index++] = cellBuffer[(bottomLeft + n) % (width * height)];
+					case 0:
+					case 1:
+					{
+						(*nextCellBuffer)[i][j].alive = 0;
+						(*nextCellBuffer)[i][j].age = 0;
+					} break;
+					case 2:
+					case 3:
+					{
+						if ((*cellBuffer)[i][j].alive)
+						{
+							(*nextCellBuffer)[i][j].age = (*cellBuffer)[i][j].age + 1;
+						}
+						else
+						{
+							(*nextCellBuffer)[i][j].age = 1;
+						}
+						(*nextCellBuffer)[i][j].alive = 1;
+					} break;
+					default:
+					{
+						(*nextCellBuffer)[i][j].alive = 0;
+						(*nextCellBuffer)[i][j].age = 0;
+					}
 				}
-
-				nextCellBuffer[(left + 1) % (width * height)] = nextGeneration(neighbourhood);
 			}
 		}
 
 		// update the device buffer
-		glBufferSubData(GL_TEXTURE_BUFFER, 0, width * height * sizeof(Cell), cells[currentCellBuffer]);
+		glBufferSubData(GL_TEXTURE_BUFFER, 
+						0, 
+						sizeof(Cells),
+						&cellBuffers[nextCellBufferIndex]);
 
-		currentCellBuffer = nextCellBuffer;
+		currentCellBuffer = nextCellBufferIndex;
 
 		// swap
 		glfwSwapBuffers(window);
-	}
-
-	for (u32 i = 0; i < NUM_CELL_BUFFERS; i++)
-	{
-		free(realPtrs[i]);
 	}
 
 	glfwDestroyWindow(window);
