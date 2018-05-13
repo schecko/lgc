@@ -218,6 +218,7 @@ int main(int argc, char** argv)
 
 	const char rawVertexCode[] = 
 	R"END(
+		#version 400
 		in vec2 vPos;
 		void main()
 		{
@@ -232,6 +233,7 @@ int main(int argc, char** argv)
 
 	const char rawFragmentCode[] =
 	R"END(
+		#version 400
 		struct Cell
 		{
 			int alive;
@@ -239,11 +241,15 @@ int main(int argc, char** argv)
 		};
 		const int width = %i;
 		const int height = %i;
-		uniform Cell cells[width * height];
+		uniform Life
+		{
+			Cell cells[width * height];
+		} life;
+
 		void main()
 		{
 		    
-			Cell cell = cells[int(gl_FragCoord.x) + int(gl_FragCoord.y) * width];
+			Cell cell = life.cells[int(gl_FragCoord.x) + int(gl_FragCoord.y) * width];
 			if(cell.alive > 0)
 			{
 				if(cell.age > 100)
@@ -292,6 +298,9 @@ int main(int argc, char** argv)
 	glLinkProgram(pipeline);
 	GLE;
 
+	//u32 cellsLocation = glGetUniformLocation(pipeline, "life");
+	// GLE;
+
 	while (!glfwWindowShouldClose(window))
 	{
 		u32 nextCellBufferIndex = (currentCellBuffer + 1) % NUM_CELL_BUFFERS;
@@ -299,7 +308,7 @@ int main(int argc, char** argv)
 		glfwPollEvents();
 
 		glBindBuffer(GL_TEXTURE_BUFFER, cellUniforms[currentCellBuffer]);
-
+		GLE;
 		// update the host buffer
 		for (u32 i = 1; i < WIDTH - 1; i++)
 		{
@@ -360,7 +369,25 @@ int main(int argc, char** argv)
 						0, 
 						sizeof(Cells),
 						&cellBuffers[nextCellBufferIndex]);
+		GLE;
 
+		// clear and start drawing
+		glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+		GLE;
+		glClear(GL_COLOR_BUFFER_BIT);
+		GLE;
+		glUseProgram(pipeline);
+		GLE;
+		glBindVertexArray(vao);
+		GLE;
+		glBindBufferBase(GL_UNIFORM_BUFFER, 
+						 0, 
+						 cellUniforms[currentCellBuffer]);
+		GLE;
+		// glUniformBlockBinding(pipeline, cellsLocation, 0);
+		// GLE;
+		glDrawElements(GL_TRIANGLES, sizeof(indices)/sizeof(indices[0]), GL_UNSIGNED_INT, 0);
+		GLE;
 		currentCellBuffer = nextCellBufferIndex;
 
 		// swap
