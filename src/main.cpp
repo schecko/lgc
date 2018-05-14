@@ -248,8 +248,9 @@ int main(int argc, char** argv)
 
 		void main()
 		{
-		    
-			Cell cell = life.cells[int(gl_FragCoord.x) + int(gl_FragCoord.y) * width];
+		    int x = int(gl_FragCoord.x * width);
+		    int y = int(gl_FragCoord.y * height);
+			Cell cell = life.cells[x + y * width];
 			if(cell.alive > 0)
 			{
 				if(cell.age > 100)
@@ -378,15 +379,15 @@ int main(int argc, char** argv)
 		GLE;
 		glUseProgram(pipeline);
 		GLE;
-		glBindVertexArray(vao);
+		//glBindVertexArray(vao);
 		GLE;
-		glBindBufferBase(GL_UNIFORM_BUFFER, 
+		/*glBindBufferBase(GL_UNIFORM_BUFFER, 
 						 0, 
-						 cellUniforms[currentCellBuffer]);
+						 cellUniforms[currentCellBuffer]);*/
 		GLE;
 		// glUniformBlockBinding(pipeline, cellsLocation, 0);
 		// GLE;
-		glDrawElements(GL_TRIANGLES, sizeof(indices)/sizeof(indices[0]), GL_UNSIGNED_INT, 0);
+		//glDrawElements(GL_TRIANGLES, sizeof(indices)/sizeof(indices[0]), GL_UNSIGNED_INT, 0);
 		GLE;
 		currentCellBuffer = nextCellBufferIndex;
 
