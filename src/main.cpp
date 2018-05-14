@@ -89,12 +89,6 @@ bool checkShaderCompile(u32 shader)
 
 #define GLE {u32 error = glGetError(); printError(error); assert(error == GL_NO_ERROR); }
 
-struct Cell
-{
-	u32 alive;
-	u32 age;
-};
-
 static const u32 NUM_NEIGHTBOURS = 9;
 static const u32 WIDTH = 480;
 static const u32 HEIGHT = 640;
@@ -109,6 +103,8 @@ void APIENTRY oglDebugCallback(GLenum source​,
 {
 	printf(message​);
 }
+
+static char logBuffer[512] = {};
 
 int main(int argc, char** argv)
 {
@@ -140,26 +136,28 @@ int main(int argc, char** argv)
 
 	u32 currentCellBuffer = 0;
 
-	typedef Cell Cells[WIDTH][HEIGHT];
+	typedef u32 Ages[WIDTH][HEIGHT];
+	static Ages cellAges[NUM_CELL_BUFFERS] = {};
 
-	static Cells cellBuffers[NUM_CELL_BUFFERS] = {};
-
-	u32 cellUniforms[NUM_CELL_BUFFERS];
-	glGenBuffers(NUM_CELL_BUFFERS, cellUniforms);
+	u32 ageBuffers[NUM_CELL_BUFFERS];
+	glGenBuffers(NUM_CELL_BUFFERS, ageBuffers);
 	GLE;
 	for (u32 i = 0; i < NUM_CELL_BUFFERS; i++)
 	{
-		Cells* currentBuffer = &cellBuffers[i];
+		Ages* currentCellAges = &cellAges[i];
 
-		memset(currentBuffer, 0, sizeof(Cells));
-		glBindBuffer(GL_TEXTURE_BUFFER, cellUniforms[i]);
+		memset(currentCellAges, 0, sizeof(Ages));
+		glBindBuffer(GL_TEXTURE_BUFFER, ageBuffers[i]);
 		GLE;
 		glBufferData(GL_TEXTURE_BUFFER,
-					 sizeof(Cells),
-					 currentBuffer,
+					 sizeof(Ages),
+					 currentCellAges,
 					 GL_DYNAMIC_DRAW);
 		GLE;
 	}
+
+	u32 ageTextures[NUM_CELL_BUFFERS];
+	glGenTextures(NUM_CELL_BUFFERS, ageTextures);
 
 	struct Vert
 	{
@@ -234,41 +232,36 @@ int main(int argc, char** argv)
 	const char rawFragmentCode[] =
 	R"END(
 		#version 400
-		struct Cell
-		{
-			int alive;
-			int age;
-		};
+
 		const int width = %i;
 		const int height = %i;
-		uniform Life
-		{
-			Cell cells[width * height];
-		} life;
+		uniform samplerBuffer cellAges;
+
+		layout(location = 0) out vec4 color;
 
 		void main()
 		{
 		    int x = int(gl_FragCoord.x * width);
 		    int y = int(gl_FragCoord.y * height);
-			Cell cell = life.cells[x + y * width];
-			if(cell.alive > 0)
+			int cellAge = life.ages[x + y * width];
+			if(cellAge > 0)
 			{
-				if(cell.age > 100)
+				if(cellAge > 100)
 				{
-					gl_FragColor = vec4(0.25, 0.25, 0.25, 1.0);
-				} else if(cell.age > 10)
+					color = vec4(1.0, 1.0, 1.0, 1.0);
+				} else if(cellAge > 10)
 				{
-					gl_FragColor = vec4(0.75, 0.75, 0.75, 1.0);
-				} else if(cell.age > 1)
+					color = vec4(0.75, 0.75, 0.75, 1.0);
+				} else if(cellAge > 1)
 				{
-					gl_FragColor = vec4(0.5, 0.5, 0.5, 1.0);
+					color = vec4(0.5, 0.5, 0.5, 1.0);
 				} else
 				{
-					gl_FragColor = vec4(0.25, 0.25, 0.25, 1.0);
+					color = vec4(0.25, 0.25, 0.25, 1.0);
 				}
 			} else
 			{
-				gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+				color = vec4(0.0, 0.0, 0.0, 1.0);
 			}
 			 
 		}
@@ -290,8 +283,10 @@ int main(int argc, char** argv)
 	GLE;
 	glCompileShader(fragmentShader);
 	assert(checkShaderCompile(fragmentShader));
+	GLE;
 
 	u32 pipeline = glCreateProgram();
+	GLE;
 	glAttachShader(pipeline, vertexShader);
 	GLE;
 	glAttachShader(pipeline, fragmentShader);
@@ -299,8 +294,13 @@ int main(int argc, char** argv)
 	glLinkProgram(pipeline);
 	GLE;
 
-	//u32 cellsLocation = glGetUniformLocation(pipeline, "life");
-	// GLE;
+	int success = false;
+	glGetProgramiv(pipeline, GL_LINK_STATUS, &success);
+	if (!success) {
+		glGetProgramInfoLog(pipeline, sizeof(logBuffer), NULL, logBuffer);
+		printf("SHADER LINK FAILED\n%s\n", logBuffer);
+		assert(false);
+	}
 
 	while (!glfwWindowShouldClose(window))
 	{
@@ -308,58 +308,55 @@ int main(int argc, char** argv)
 		// input
 		glfwPollEvents();
 
-		glBindBuffer(GL_TEXTURE_BUFFER, cellUniforms[currentCellBuffer]);
+		glBindBuffer(GL_TEXTURE_BUFFER, ageBuffers[currentCellBuffer]);
 		GLE;
 		// update the host buffer
 		for (u32 i = 1; i < WIDTH - 1; i++)
 		{
 			for (u32 j = 1; j < HEIGHT - 1; j++)
 			{
-				Cells* cellBuffer = &cellBuffers[currentCellBuffer];
-				Cells* nextCellBuffer = &cellBuffers[nextCellBufferIndex];
+				Ages* cellBuffer = &cellAges[currentCellBuffer];
+				Ages* nextCellBuffer = &cellAges[nextCellBufferIndex];
 
 				u32 numAliveNeighbours = 0;
 
 				// top row
-				numAliveNeighbours += (*cellBuffer)[i - 1][j + 1].alive;
-				numAliveNeighbours += (*cellBuffer)[i][j + 1].alive;
-				numAliveNeighbours += (*cellBuffer)[i + 1][j + 1].alive;
+				numAliveNeighbours += (*cellBuffer)[i - 1][j + 1] ? 1 : 0;
+				numAliveNeighbours += (*cellBuffer)[i][j + 1] ? 1 : 0;
+				numAliveNeighbours += (*cellBuffer)[i + 1][j + 1] ? 1 : 0;
 
 				// middle row
-				numAliveNeighbours += (*cellBuffer)[i - 1][j].alive;
-				//numAliveNeighbours += (*cellBuffer)[i][j].alive;
-				numAliveNeighbours += (*cellBuffer)[i + 1][j].alive;
+				numAliveNeighbours += (*cellBuffer)[i - 1][j] ? 1 : 0;
+				//numAliveNeighbours += (*cellBuffer)[i][j].alive? 1 : 0;
+				numAliveNeighbours += (*cellBuffer)[i + 1][j] ? 1 : 0;
 
 				// bottom row
-				numAliveNeighbours += (*cellBuffer)[i - 1][j - 1].alive;
-				numAliveNeighbours += (*cellBuffer)[i][j - 1].alive;
-				numAliveNeighbours += (*cellBuffer)[i + 1][j - 1].alive;
+				numAliveNeighbours += (*cellBuffer)[i - 1][j - 1] ? 1 : 0;
+				numAliveNeighbours += (*cellBuffer)[i][j - 1] ? 1 : 0;
+				numAliveNeighbours += (*cellBuffer)[i + 1][j - 1] ? 1 : 0;
 
 				switch (numAliveNeighbours)
 				{
 					case 0:
 					case 1:
 					{
-						(*nextCellBuffer)[i][j].alive = 0;
-						(*nextCellBuffer)[i][j].age = 0;
+						(*nextCellBuffer)[i][j] = 0;
 					} break;
 					case 2:
 					case 3:
 					{
-						if ((*cellBuffer)[i][j].alive)
+						if ((*cellBuffer)[i][j])
 						{
-							(*nextCellBuffer)[i][j].age = (*cellBuffer)[i][j].age + 1;
+							(*nextCellBuffer)[i][j] = (*cellBuffer)[i][j] + 1;
 						}
 						else
 						{
-							(*nextCellBuffer)[i][j].age = 1;
+							(*nextCellBuffer)[i][j] = 1;
 						}
-						(*nextCellBuffer)[i][j].alive = 1;
 					} break;
 					default:
 					{
-						(*nextCellBuffer)[i][j].alive = 0;
-						(*nextCellBuffer)[i][j].age = 0;
+						(*nextCellBuffer)[i][j] = 0;
 					}
 				}
 			}
@@ -368,8 +365,8 @@ int main(int argc, char** argv)
 		// update the device buffer
 		glBufferSubData(GL_TEXTURE_BUFFER, 
 						0, 
-						sizeof(Cells),
-						&cellBuffers[nextCellBufferIndex]);
+						sizeof(Ages),
+						&cellAges[nextCellBufferIndex]);
 		GLE;
 
 		// clear and start drawing
